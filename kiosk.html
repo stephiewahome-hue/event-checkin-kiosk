@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solstice Events - Check-in Kiosk</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #f4f5f9; margin: 0; padding: 24px; color: #222; }
+  h1 { margin: 0 0 4px; }
+  .sub { color: #666; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .card { background: #fff; border-radius: 12px; padding: 18px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+  .name { font-size: 1.15rem; font-weight: bold; }
+  .id { color: #888; font-size: .85rem; margin-bottom: 12px; }
+  .badge { display: inline-block; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: .9rem; margin-bottom: 12px; }
+  .not_checked_in { background: #e5e7eb; color: #444; }
+  .pending { background: #fef3c7; color: #92400e; }
+  .checked_in { background: #d1fae5; color: #065f46; }
+  button { width: 100%; padding: 10px; border: 0; border-radius: 8px; background: #4f46e5; color: #fff; font-size: 1rem; cursor: pointer; }
+  button:hover { background: #4338ca; }
+  #log { margin-top: 24px; background: #fff; border-radius: 12px; padding: 14px 18px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+  #log div { padding: 4px 0; border-bottom: 1px solid #eee; font-size: .92rem; }
+  .spin { display: inline-block; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <h1>Solstice Events Check-in</h1>
+  <div class="sub">Press "Scan QR" to simulate staff scanning an attendee's badge.</div>
+
+  <div class="grid" id="grid"></div>
+
+  <div id="log"><strong>Activity</strong></div>
+
+<script>
+  const ATTENDEES = [
+    { id: "A001", name: "Alice Otieno" },
+    { id: "A002", name: "Brian Mwangi" },
+    { id: "A003", name: "Cynthia Wanjiku" },
+  ];
+
+  const LABELS = {
+    not_checked_in: "Not checked in",
+    pending: "Printing...",
+    checked_in: "Checked In",
+  };
+
+  const grid = document.getElementById("grid");
+
+  ATTENDEES.forEach(a => {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <div class="name">${a.name}</div>
+      <div class="id">${a.id}</div>
+      <div class="badge not_checked_in" id="badge-${a.id}">${LABELS.not_checked_in}</div>
+      <button onclick="scan('${a.id}')">Scan QR</button>`;
+    grid.appendChild(card);
+  });
+
+  function log(text) {
+    const d = document.createElement("div");
+    d.textContent = new Date().toLocaleTimeString() + "  " + text;
+    const box = document.getElementById("log");
+    box.insertBefore(d, box.children[1]);
+  }
+
+  function showStatus(id, status) {
+    const el = document.getElementById("badge-" + id);
+    el.className = "badge " + status;
+    el.innerHTML = status === "pending"
+      ? '<span class="spin">&#9203;</span> ' + LABELS.pending
+      : LABELS[status];
+  }
+
+  async function scan(id) {
+    const res = await fetch("/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attendee_id: id }),
+    });
+    const data = await res.json();
+    if (res.status === 202) {
+      showStatus(id, "pending");
+      log(id + ": print request sent, waiting for printer confirmation");
+    } else if (res.status === 409) {
+      log(id + ": " + data.message);
+    } else {
+      log(id + ": " + (data.error || "error"));
+    }
+  }
+
+  const last = {};
+  async function poll() {
+    for (const a of ATTENDEES) {
+      try {
+        const res = await fetch("/status/" + a.id);
+        const { status } = await res.json();
+        showStatus(a.id, status);
+        if (last[a.id] && last[a.id] !== status && status === "checked_in") {
+          log(a.name + ": badge printed, CHECKED IN");
+        }
+        last[a.id] = status;
+      } catch (e) { }
+    }
+  }
+  setInterval(poll, 1000);
+  poll();
+</script>
+</body>
+</html>

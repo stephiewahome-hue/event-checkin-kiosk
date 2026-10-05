@@ -1,0 +1,10 @@
+# Virtual environment and Python cache
+venv/
+__pycache__/
+*.pyc
+
+# Secrets: never commit these
+.env
+
+# Editor files
+.vscode/
