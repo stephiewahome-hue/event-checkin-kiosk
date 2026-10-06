@@ -3,8 +3,25 @@
 A small check-in kiosk for a conference. Staff scan an attendee's QR code, a badge is printed,
 and the screen shows **Checked In** only once the printer has actually confirmed.
 
+> **Credit:** the scenario (Solstice Events Co. and its badge-printer pivot) comes from a
+> pivot-simulation exercise I came across online. The design and code here are my own implementation.
+
 This project explores a common real-world change: a printer vendor retires its synchronous
 API, so the app must switch to an **asynchronous model** (message queue + webhook callback).
+
+## Screenshots
+
+**Kiosk screen:** badges show *Printing...* until the printer's webhook confirms, then *Checked In*.
+
+![Kiosk](screenshots/kiosk.png)
+
+**Duplicate scans are rejected** (both while printing and after check-in), so no second badge is printed.
+
+![Duplicate rejected](screenshots/duplicate-rejected.png)
+
+**Printer worker:** confirmations arrive in a different order than the scans, and sometimes twice.
+
+![Worker terminal](screenshots/worker-terminal.png)
 
 ## The problem
 
@@ -68,5 +85,19 @@ jobs, WebSockets instead of polling, camera QR scanning, HTTPS.
 
 ## What I learned
 
-(Write your own notes here: Redis lists as queues, atomic operations, idempotency, and the
-timeout bug you hit and fixed.)
+- **A queue is just a list with rules.** I used a Redis list as the message queue: the app pushes
+  a job with `LPUSH` and the worker waits for work with `BRPOP`. The app never waits for the printer.
+- **Atomic operations stop race conditions.** `SET ... NX` ("set only if it doesn't exist") is a single
+  step in Redis, so two scans at the same instant can't both pass the duplicate check.
+- **Async means expecting messy delivery.** Confirmations can arrive late, out of order, or twice.
+  Giving every print job a unique ID and processing each ID only once (idempotency) made that safe.
+- **Never trust an incoming webhook blindly.** Anyone who finds the URL can call it, so each callback
+  is signed with HMAC-SHA256 and verified before anything changes.
+- **The UI has to tell the truth.** "Checked In" is only shown after the printer confirms; until then it
+  shows a pending state.
+- **Bugs I hit and fixed:**
+  - The worker crashed with a `TimeoutError` while idle because the connection timeout (default) was
+    shorter than the 5-second blocking wait. Fix: a longer socket timeout plus a retry on timeout.
+  - Redis doesn't run natively on Windows, so I set it up through WSL (Ubuntu).
+  - Small setup issues (virtual environment not active, file saved with the wrong extension) taught me
+    to check the basics first when the error message doesn't make sense.
